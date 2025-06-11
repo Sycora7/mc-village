@@ -1,0 +1,464 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walk in the Park</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(135deg, #87CEEB 0%, #98FB98 100%);
+            font-family: 'Georgia', sans-serif;
+            cursor: none;
+        }
+        
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 100;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+        
+        #info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(34, 139, 34, 0.8);
+            padding: 15px;
+            border-radius: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            max-width: 280px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(34, 139, 34, 0.8);
+            padding: 15px;
+            border-radius: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        
+        button {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(5px);
+        }
+        
+        button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ffffff;
+            font-size: 28px;
+            font-weight: bold;
+            z-index: 200;
+            text-shadow: 0 2px 4px rgba(255, 255, 255, 0.5);
+        }
+        
+        .nature-ui {
+            background: linear-gradient(135deg, rgba(34, 139, 34, 0.9), rgba(107, 142, 35, 0.8));
+        }
+    </style>
+</head>
+<body>
+    <div id="crosshair"></div>
+    <div id="loading">🌳 Loading Park Experience... 🌺</div>
+    
+    <div id="info" class="nature-ui" style="display: none;">
+        <h3></h3>
+        <p></p>
+        <p></p>
+        <p></p>
+        <p></p>
+        <p></p>
+    </div>
+    
+    <div id="controls" class="nature-ui" style="display: none;">
+        <div>Arrow keys to move</div>
+        <button id="toggleTime">🌅 Time of Day</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.setClearColor(0x87CEEB);
+        document.body.appendChild(renderer.domElement);
+
+        
+        let mouseX = 0, mouseY = 0;
+        let targetRotationX = 0, targetRotationY = 0;
+        let currentRotationX = 0, currentRotationY = 0;
+        const mouseSensitivity = 0.003;
+        const smoothingFactor = 0.1; 
+        
+        
+        const keys = {};
+        let walkPosition = 0;
+        const walkSpeed = 8;
+        let walkBob = 0;
+        
+        
+        let timeOfDay = 0.5; 
+        let isNightMode = false;
+
+    
+
+        
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        directionalLight.position.set(50, 50, 50);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 500;
+        directionalLight.shadow.camera.left = -100;
+        directionalLight.shadow.camera.right = 100;
+        directionalLight.shadow.camera.top = 100;
+        directionalLight.shadow.camera.bottom = -100;
+        scene.add(directionalLight);
+
+        
+        const pathGeometry = new THREE.PlaneGeometry(4, 200);
+        const pathMaterial = new THREE.MeshLambertMaterial({ 
+            color: 0x8B4513,
+            transparent: true,
+            opacity: 0.8
+        });
+        const path = new THREE.Mesh(pathGeometry, pathMaterial);
+        path.rotation.x = -Math.PI / 2;
+        path.receiveShadow = true;
+        scene.add(path);
+
+        
+        const grassGeometry = new THREE.PlaneGeometry(100, 200);
+        const grassMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+        const grass = new THREE.Mesh(grassGeometry, grassMaterial);
+        grass.rotation.x = -Math.PI / 2;
+        grass.position.y = -0.01;
+        grass.receiveShadow = true;
+        scene.add(grass);
+
+        
+        const trees = [];
+        for (let i = 0; i < 20; i++) {
+            const treeGroup = new THREE.Group();
+            
+            
+            const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.5, 4);
+            const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 2;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+            
+            
+            const foliageGeometry = new THREE.SphereGeometry(2.5, 8, 8);
+            const foliageMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+            const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
+            foliage.position.y = 5.5;
+            foliage.castShadow = true;
+            treeGroup.add(foliage);
+            
+            
+            const side = i % 2 === 0 ? 1 : -1;
+            treeGroup.position.set(
+                side * (6 + Math.random() * 4),
+                0,
+                (i - 10) * 8 + Math.random() * 4
+            );
+            
+            trees.push(treeGroup);
+            scene.add(treeGroup);
+        }
+
+        
+        const flowers = [];
+        for (let i = 0; i < 50; i++) {
+            const flowerGroup = new THREE.Group();
+            
+            
+            const stemGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.5);
+            const stemMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+            const stem = new THREE.Mesh(stemGeometry, stemMaterial);
+            stem.position.y = 0.25;
+            flowerGroup.add(stem);
+            
+            
+            const petalColors = [0xFF69B4, 0xFF1493, 0xFFB6C1, 0xFFA500, 0xFFFF00, 0xFF4500];
+            const flowerGeometry = new THREE.SphereGeometry(0.15, 6, 6);
+            const flowerMaterial = new THREE.MeshLambertMaterial({ 
+                color: petalColors[Math.floor(Math.random() * petalColors.length)]
+            });
+            const flower = new THREE.Mesh(flowerGeometry, flowerMaterial);
+            flower.position.y = 0.5;
+            flowerGroup.add(flower);
+            
+            
+            flowerGroup.position.set(
+                (Math.random() - 0.5) * 40,
+                0,
+                (Math.random() - 0.5) * 180
+            );
+            
+            flowers.push(flowerGroup);
+            scene.add(flowerGroup);
+        }
+
+        
+        const butterflies = [];
+        for (let i = 0; i < 8; i++) {
+            const butterflyGroup = new THREE.Group();
+            
+            
+            const bodyGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.3);
+            const bodyMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            butterflyGroup.add(body);
+            
+            
+            const wingGeometry = new THREE.SphereGeometry(0.15, 8, 4);
+            const wingMaterial = new THREE.MeshBasicMaterial({ 
+                color: Math.random() * 0xffffff,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            leftWing.position.set(-0.15, 0, 0);
+            leftWing.scale.set(1, 0.3, 2);
+            
+            const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
+            rightWing.position.set(0.15, 0, 0);
+            rightWing.scale.set(1, 0.3, 2);
+            
+            butterflyGroup.add(leftWing);
+            butterflyGroup.add(rightWing);
+            
+            butterflyGroup.position.set(
+                (Math.random() - 0.5) * 20,
+                2 + Math.random() * 3,
+                (Math.random() - 0.5) * 100
+            );
+            
+            butterflies.push({
+                group: butterflyGroup,
+                wingSpeed: 5 + Math.random() * 10,
+                floatSpeed: 1 + Math.random() * 2,
+                baseY: butterflyGroup.position.y
+            });
+            scene.add(butterflyGroup);
+        }
+
+        
+        const clouds = [];
+        for (let i = 0; i < 10; i++) {
+            const cloudGroup = new THREE.Group();
+            
+            
+            for (let j = 0; j < 4; j++) {
+                const cloudGeometry = new THREE.SphereGeometry(2 + Math.random(), 8, 8);
+                const cloudMaterial = new THREE.MeshBasicMaterial({ 
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const cloudPart = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                cloudPart.position.set(
+                    (Math.random() - 0.5) * 4,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 4
+                );
+                cloudGroup.add(cloudPart);
+            }
+            
+            cloudGroup.position.set(
+                (Math.random() - 0.5) * 100,
+                25 + Math.random() * 10,
+                (Math.random() - 0.5) * 200
+            );
+            
+            clouds.push(cloudGroup);
+            scene.add(cloudGroup);
+        }
+
+        
+        camera.position.set(0, 1.7, 0);
+
+        
+        document.addEventListener('mousemove', (event) => {
+            const deltaX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+            const deltaY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+            
+            targetRotationY -= deltaX * mouseSensitivity;
+            targetRotationX -= deltaY * mouseSensitivity;
+            
+            
+            targetRotationX = Math.max(-Math.PI/3, Math.min(Math.PI/3, targetRotationX));
+        });
+
+        
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'ArrowUp') {
+                keys['forward'] = true;
+                event.preventDefault();
+            }
+            if (event.key === 'ArrowDown') {
+                keys['backward'] = true;
+                event.preventDefault();
+            }
+        });
+        
+        document.addEventListener('keyup', (event) => {
+            if (event.key === 'ArrowUp') {
+                keys['forward'] = false;
+            }
+            if (event.key === 'ArrowDown') {
+                keys['backward'] = false;
+            }
+        });
+
+        
+        document.addEventListener('click', () => {
+            document.body.requestPointerLock();
+        });
+
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const deltaTime = 0.016; 
+            const elapsedTime = Date.now() * 0.001;
+            
+            
+            currentRotationX += (targetRotationX - currentRotationX) * smoothingFactor;
+            currentRotationY += (targetRotationY - currentRotationY) * smoothingFactor;
+            
+            
+            if (keys['forward']) {
+                walkPosition += walkSpeed * deltaTime;
+                walkBob += deltaTime * 8;
+            }
+            if (keys['backward']) {
+                walkPosition -= walkSpeed * deltaTime;
+                walkBob += deltaTime * 8;
+            }
+            
+            
+            const bobAmount = (keys['forward'] || keys['backward']) ? Math.sin(walkBob) * 0.05 : 0;
+            
+            camera.position.z = -walkPosition;
+            camera.position.y = 1.7 + bobAmount;
+            
+            
+            camera.rotation.order = 'YXZ';
+            camera.rotation.y = currentRotationY;
+            camera.rotation.x = currentRotationX;
+            
+            
+            trees.forEach((tree, index) => {
+                const sway = Math.sin(elapsedTime + index) * 0.02;
+                tree.rotation.z = sway;
+            });
+            
+            
+            butterflies.forEach((butterfly, index) => {
+                const group = butterfly.group;
+                
+                
+                const wingFlap = Math.sin(elapsedTime * butterfly.wingSpeed) * 0.3;
+                group.children[1].rotation.z = wingFlap;  
+                group.children[2].rotation.z = -wingFlap; 
+                
+                
+                group.position.y = butterfly.baseY + Math.sin(elapsedTime * butterfly.floatSpeed + index) * 0.5;
+                group.position.x += Math.sin(elapsedTime * 0.5 + index) * 0.01;
+            });
+            
+            
+            flowers.forEach((flower, index) => {
+                const gentle = Math.sin(elapsedTime * 0.5 + index) * 0.01;
+                flower.rotation.z = gentle;
+            });
+            
+            
+            clouds.forEach((cloud, index) => {
+                cloud.position.x += 0.01;
+                if (cloud.position.x > 50) cloud.position.x = -50;
+            });
+            
+            
+            const sunIntensity = 0.3 + timeOfDay * 0.7;
+            directionalLight.intensity = sunIntensity;
+            ambientLight.intensity = 0.2 + timeOfDay * 0.4;
+            
+            const skyColor = isNightMode ? 0x191970 : 0x87CEEB;
+            renderer.setClearColor(skyColor);
+            
+            renderer.render(scene, camera);
+        }
+
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+      
+
+        
+        document.getElementById('toggleTime').addEventListener('click', () => {
+            isNightMode = !isNightMode;
+            timeOfDay = isNightMode ? 0.2 : 0.8;
+            document.getElementById('toggleTime').textContent = isNightMode ? '🌞 Daytime' : '🌙 Nighttime';
+        });
+
+        
+        setTimeout(() => {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('info').style.display = 'block';
+            document.getElementById('controls').style.display = 'block';
+        }, 1500);
+
+        
+        animate();
+    </script>
+</body>
+</html>
